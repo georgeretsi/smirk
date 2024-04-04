@@ -1,0 +1,96 @@
+resume:
+load_encoder: True
+load_fuse_generator: True
+device: cuda:0
+image_size: 224
+K: 1 # temporal sequence length
+
+train:
+  lr: 2e-4
+  num_epochs: 300
+  batch_size: 32
+  num_workers: 8
+  log_path: logs/1
+  log_losses_every: 10
+  visualize_every: 50
+  mask_ratio: 0.01
+  mask_ratio_mul: 5
+  mask_dilation_radius: 10
+  save_every: 1
+  Ke: 1 # number of repeated frames for 2nd path
+  samples_per_epoch: 50000
+  use_base_model_for_regularization: False
+  resume_epoch: 0
+  train_scale_min: 1.2
+  train_scale_max: 1.8
+  test_scale: 1.6
+  norm_l1: False
+
+  optimize_pose: True
+  optimize_shape: True
+  optimize_expression: True
+
+  loss_weights:
+    landmark_loss: 100.0
+    perceptual_vgg_loss: 0.0
+    reconstruction_loss: 0.0
+    emotion_loss: 0.0
+    jaw_regularization: 0
+    expression_regularization: 1e-2
+    shape_regularization: 0
+    cycle_loss: 0.0
+    mica_loss: 10
+
+  freeze_generator_in_second_path: False
+  freeze_encoder_in_second_path: False
+  freeze_encoder_in_first_path: False
+  freeze_generator_in_first_path: False
+  
+  freeze_schedule:
+    per_iteration: False
+    apply_on_first_path: False
+    apply_on_second_path: True
+    generator_first: False
+    alternate_first_second_path: False
+
+arch:
+  backbone_pose: tf_mobilenetv3_small_minimal_100
+  backbone_shape: tf_mobilenetv3_large_minimal_100
+  backbone_expression: tf_mobilenetv3_large_minimal_100
+  num_expression: 50
+  num_shape: 300
+  use_eyelids: True
+  enable_fuse_generator: False
+
+
+render:
+  full_head: False
+  
+
+dataset:
+  LRS3_path: /gpu-data4/filby/LRS3
+  LRS3_landmarks_path: /gpu-data4/filby/LRS3_landmarks
+
+  MEAD_path: /gpu-data4/filby/MEAD_preprocessed/MEAD_front/videos
+  MEAD_fan_landmarks_path: /gpu-data4/filby/MEAD_preprocessed/MEAD_front/fan_landmarks_hhj1897
+  MEAD_mediapipe_landmarks_path: /gpu-data4/filby/MEAD_preprocessed/MEAD_front/mediapipe_landmarks
+
+  FFHQ_path: /gpu-data4/filby/FFHQ256/ffhq256
+  FFHQ_fan_landmarks_path: /gpu-data4/filby/FFHQ256/fan_landmarks_hhj1897
+  FFHQ_mediapipe_landmarks_path: /gpu-data4/filby/FFHQ256/mediapipe_landmarks
+
+  CelebA_path: /gpu-data4/filby/CelebA/img_align_celeba
+  CelebA_fan_landmarks_path: /gpu-data4/filby/CelebA/fan_landmarks_hhj1897
+  CelebA_mediapipe_landmarks_path: /gpu-data4/filby/CelebA/mediapipe_landmarks
+
+  MEAD_sides_path: /gpu-data4/filby/MEAD_preprocessed
+
+  LRS3_percentage: 0.2 #0.2
+  LRS3_temporal_sampling: False
+  MEAD_percentage: 0.1 #0.2
+  FFHQ_percentage: 0.3 #0.3
+  CelebA_percentage: 0.3 #0.2
+  MEAD_sides_percentage: 0.1 #0.1
+  sample_full_video_for_testing: False
+
+

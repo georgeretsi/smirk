@@ -1,0 +1,12 @@
+logs/
+trained_models/
+pretrained_models/
+assets/expression_templates_famos
+assets/FLAME2020
+assets/mica.tar
+assets/ResNet50
+assets/face_landmarker.task
+assets/LRS3_lists.pkl
+assets/MEAD_lists.pkl
+.vscode
+__pycache__/
