@@ -1,11 +1,11 @@
 # SMIRK: 3D Facial Expressions through Analysis-by-Neural-Synthesis
 
 This is the official PyTorch implementation of SMIRK:
-This repository is the official implementation of the [CVPR 2024](https://cvpr.thecvf.com) paper [3D Facial Expressions through Analysis-by-Neural Synthesis]().
+This repository is the official implementation of the [CVPR 2024](https://cvpr.thecvf.com) paper [3D Facial Expressions through Analysis-by-Neural Synthesis](https://arxiv.org/abs/2404.04104).
 
 
 <p align="center">
-  <a href=''>
+  <a href='https://arxiv.org/abs/2404.04104' style='padding-left: 0.5rem;'>
     <img src='https://img.shields.io/badge/arXiv-2207.11094-brightgreen' alt='arXiv'>
   </a>
   <!-- <a href=''>
