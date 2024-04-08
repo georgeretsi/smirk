@@ -38,12 +38,18 @@ pip install -r requirements.txt
 pip install --no-index --no-cache-dir pytorch3d -f https://dl.fbaipublicfiles.com/pytorch3d/packaging/wheels/py39_cu117_pyt201/download.html
 ```
 
+Then, in order to download the required models, run:
+
+```bash
+bash quick_install.sh
+```
+
 
 ## Demo 
 We provide a demo that can be used to test the model on a single image or a video file. 
 
 ```bash
-python demo.py --input_path path_to_image_or_video --output_path path_to_output --model_path trained_models/first_stage_pretrained_encoder.pt
+python demo.py --input_path path_to_image_or_video --output_path path_to_output --model_path pretrained_models/SMIRK_em1.pt
 ```
 
 
@@ -90,7 +96,7 @@ python train.py configs/config_pretrain.yaml train.log_path="logs/pretrain"
 After pretraining, at the core stage of SMIRK, we freeze the shape and pose encoders and train the expression encoder with the full SMIRK framework (reconstruction path and cycle path). 
 
 ```bash
-python train.py configs/config_train.yaml resume=trained_models/first_stage_pretrained_encoder.pt train.loss_weights.emotion_loss=1.0
+python train.py configs/config_train.yaml resume=logs/pretrain/first_stage_pretrained_encoder.pt train.loss_weights.emotion_loss=1.0
 ```
 
 
