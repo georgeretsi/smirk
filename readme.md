@@ -73,6 +73,7 @@ and for FAN:
 python datasets/preprocess_scripts/apply_fan_to_dataset.py --input_dir PATH_TO_FFHQ256/images --output_dir PATH_TO_FFHQ256/fan_landmarks
 ```
 
+Note that for obtaining the FAN landmarks we use the implementation in [https://github.com/hhj1897/face_alignment](https://github.com/hhj1897/face_alignment).
 
 Next, make sure to update the config files in `configs` with the correct paths to the datasets and their landmarks.
 
