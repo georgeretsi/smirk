@@ -47,7 +47,7 @@ def keep_vertices_and_update_faces(faces, vertices_to_keep):
     return updated_faces
 
 class Renderer(nn.Module):
-    def __init__(self, render_full_head=False, obj_filename='assets/FLAME2020/head_template.obj'):
+    def __init__(self, render_full_head=False, obj_filename='assets/head_template.obj'):
         super(Renderer, self).__init__()
         self.image_size = 224
 

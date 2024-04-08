@@ -48,7 +48,7 @@ class FLAME(nn.Module):
     which outputs the a mesh and 2D/3D facial landmarks
     """
     def __init__(self, flame_model_path='assets/FLAME2020/generic_model.pkl', 
-                 flame_lmk_embedding_path='assets/FLAME2020/landmark_embedding.npy', n_shape=300, n_exp=50):
+                 flame_lmk_embedding_path='assets/landmark_embedding.npy', n_shape=300, n_exp=50):
         super(FLAME, self).__init__()
 
         with open(flame_model_path, 'rb') as f:
