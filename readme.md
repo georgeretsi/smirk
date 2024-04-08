@@ -43,6 +43,8 @@ Then, in order to download the required models, run:
 ```bash
 bash quick_install.sh
 ```
+*The above installation includes downloading the [FLAME](https://flame.is.tue.mpg.de/) model. This requires registration. If you do not have an account you can register at [https://flame.is.tue.mpg.de/](https://flame.is.tue.mpg.de/)*
+
 
 
 ## Demo 
