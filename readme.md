@@ -49,7 +49,7 @@ bash quick_install.sh
 We provide a demo that can be used to test the model on a single image or a video file. 
 
 ```bash
-python demo.py --input_path samples/test_image1.png --output_path results/ --model_path pretrained_models/SMIRK_em1.pt
+python demo.py --input_path samples/test_image2.png --out_path results/ --checkpoint pretrained_models/SMIRK_em1.pt --crop
 ```
 
 
