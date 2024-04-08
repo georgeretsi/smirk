@@ -13,7 +13,7 @@ password=$(urle $password)
 echo -e "\nDownloading FLAME..."
 mkdir -p data/FLAME2020/
 wget --post-data "username=$username&password=$password" 'https://download.is.tue.mpg.de/download.php?domain=flame&sfile=FLAME2020.zip&resume=1' -O './FLAME2020.zip' --no-check-certificate --continue
-unzip FLAME2020.zip -d data/FLAME2020/
+unzip FLAME2020.zip -d assets/FLAME2020/
 rm FLAME2020.zip
 
 echo -e "\nDownloading Mediapipe Face Mesh model..."
@@ -32,7 +32,7 @@ echo -e "\n Now downloading the files needed if you want to train SMIRK..."
 # Download expression templates
 echo -e "\nDownload expression templates for SMIRK training..."
 gdown --id 1wEL7KPHw2kl5DxP0UAB3h9QcQLXk7BM_
-unzip  expression_templates_famos.zip -d assets/
+unzip -q expression_templates_famos.zip -d assets/
 rm expression_templates_famos.zip
 
 # Download EMOCA for expression loss

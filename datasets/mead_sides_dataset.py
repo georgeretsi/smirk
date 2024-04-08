@@ -1,8 +1,8 @@
 import os
 import pickle
-import datasets.data_utils as data_utils
 from datasets.base_dataset import BaseDataset
 import numpy as np
+import cv2
 
 class MEADSidesDataset(BaseDataset):
     def __init__(self, data_list, config, test=False):
@@ -19,14 +19,30 @@ class MEADSidesDataset(BaseDataset):
         video_path = sample[0]
 
         if not os.path.exists(landmarks_filename):
-            raise Exception('Video %s has no landmarks'%(sample))
+            print('Mediapipe landmarks not found for %s'%(sample))
+            return None
 
-        landmarks = np.load(landmarks_filename)
+        landmarks_mediapipe = np.load(landmarks_filename)
 
-        data_dict = self.sample_frames(video_path, None, landmarks)
+        video = cv2.VideoCapture(video_path)
+        num_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
 
-        data_dict['subject'] = ""
-        data_dict['filename'] = ""
+        # select randomly one file from this subject
+        if num_frames == 0:
+            print('Video %s has no frames'%(sample))
+            return None
+        
+        # pick random frame
+        frame_idx = np.random.randint(0, num_frames)
+        video.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret, image = video.read()
+        if not ret:
+            print('Video %s has no frames'%(sample))
+            return None
+
+        landmarks_mediapipe = landmarks_mediapipe[frame_idx]
+
+        data_dict = self.prepare_data(image=image, landmarks_fan=None, landmarks_mediapipe=landmarks_mediapipe)
 
         return data_dict
     

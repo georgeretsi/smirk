@@ -24,11 +24,14 @@ train:
   train_scale_min: 1.2
   train_scale_max: 1.8
   test_scale: 1.6
-  norm_l1: False
 
   optimize_pose: True
   optimize_shape: True
   optimize_expression: True
+
+  # automatically tunable hyperparameters - just declared here
+  freeze_encoder_in_second_path: False
+  freeze_generator_in_second_path: False
 
   loss_weights:
     landmark_loss: 100.0
@@ -40,18 +43,6 @@ train:
     shape_regularization: 0
     cycle_loss: 0.0
     mica_loss: 10
-
-  freeze_generator_in_second_path: False
-  freeze_encoder_in_second_path: False
-  freeze_encoder_in_first_path: False
-  freeze_generator_in_first_path: False
-  
-  freeze_schedule:
-    per_iteration: False
-    apply_on_first_path: False
-    apply_on_second_path: True
-    generator_first: False
-    alternate_first_second_path: False
 
 arch:
   backbone_pose: tf_mobilenetv3_small_minimal_100

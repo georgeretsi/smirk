@@ -5,7 +5,6 @@ from tqdm import tqdm
 from src.smirk_trainer import SmirkTrainer
 import os
 from datasets.data_utils import load_dataloaders
-import src.utils.utils as utils
 
 
 def parse_args():
@@ -57,14 +56,15 @@ if __name__ == '__main__':
 
                 trainer.set_freeze_status(config, batch_idx, epoch)
 
-                batch = utils.preprocess_batch(batch, K=config.K, device=config.device)
+                for key in batch:
+                    batch[key] = batch[key].to(config.device)
 
                 outputs = trainer.step(batch, batch_idx, phase=phase)
 
                 if batch_idx % config.train.visualize_every == 0:
                     with torch.no_grad():
                         visualizations = trainer.create_visualizations(batch, outputs)
-                        trainer.save_visualizations(visualizations, f"{config.train.log_path}/{phase}_images/{epoch}_{batch_idx}.jpg", show_landmarks=False)
+                        trainer.save_visualizations(visualizations, f"{config.train.log_path}/{phase}_images/{epoch}_{batch_idx}.jpg", show_landmarks=True)
                                     
 
 

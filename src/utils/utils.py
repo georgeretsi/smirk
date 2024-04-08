@@ -2,51 +2,6 @@ import os
 import torch
 import numpy as np
 
-
-def preprocess_batch(batch, K=1, device='cuda'):
-    # this function preprocesses the batch before input to the model
-    # it is used to handle the K-tuple sampling
-    
-    kmask = batch['K_useful']
-
-    for key in batch.keys():
-        if key == 'K_useful' or key == 'subject' or key == 'filename':
-            continue
-        if key == 'dataset_name':
-            # list of strings
-            if sum(kmask) > 0:
-                list1 = [t for t in np.asarray(batch[key])[kmask.numpy()] for _ in range(K)]
-            else:
-                list1 = []
-            if sum(~kmask) > 0:
-                list2 = [t for t in np.asarray(batch[key])[~kmask.numpy()]]
-            else:
-                list2 = []
-            batch[key] = list1 + list2
-            continue
-            
-        # per batch flag
-        if key == 'flag_landmarks_fan':
-            batch[key] = torch.cat([
-                batch[key][kmask].view(-1, 1).repeat(1, K).view(-1),
-                batch[key][~kmask].view(-1)
-            ], dim=0)
-        else:
-            tsize = batch[key].shape[2:]
-            batch[key] = torch.cat([
-                batch[key][kmask].view(-1, *tsize),
-                batch[key][~kmask][:, 0].view(-1, *tsize)   
-            ], dim=0)
-        
-        batch[key] = batch[key].to(device)  
-
-    # number of K-tuples in the batch
-    batch['NK'] = torch.sum(kmask).item() * K
-    
-    return batch
-    
-
-
 def load_templates():
     templates_path = "assets/expression_templates_famos"
     classes_to_load = ["lips_back", "rolling_lips", "mouth_side", "kissing", "high_smile", "mouth_up",
@@ -103,3 +58,33 @@ def unfreeze_module(module, module_name=None):
 
     module.train()
 
+import cv2
+from torchvision.utils import make_grid
+
+
+def batch_draw_keypoints(images, landmarks, color=(255, 255, 255), radius=1):
+    if isinstance(landmarks, torch.Tensor):
+        landmarks = landmarks.cpu().numpy()
+        landmarks = landmarks.copy()*112 + 112
+
+    if isinstance(images, torch.Tensor):
+        images = images.cpu().numpy().transpose(0, 2, 3, 1)
+        images = (images * 255).astype('uint8')
+        images = np.ascontiguousarray(images[..., ::-1])
+
+    plotted_images = []
+    for image, landmark in zip(images, landmarks):
+        for point in landmark:
+            image = cv2.circle(image, (int(point[0]), int(point[1])), radius, color, -1)
+        plotted_images.append(image)
+
+    return plotted_images
+
+def make_grid_from_opencv_images(images, nrow=12):
+    """ Create a grid of images from the list of cv2 images in images"""
+    images = np.array(images)
+    images = images[..., ::-1]
+    images = np.array(images)
+    images = torch.from_numpy(images).permute(0, 3, 1, 2).float()/255.
+    grid = make_grid(images, nrow=nrow)
+    return grid

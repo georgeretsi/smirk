@@ -1,11 +1,9 @@
 import os
 import pickle
 import datasets.data_utils as data_utils
-
-import albumentations as A
-from sklearn.model_selection import train_test_split
 from datasets.base_dataset import BaseDataset
 import numpy as np
+import cv2
 
 class LRS3Dataset(BaseDataset):
     def __init__(self, data_list, config, test=False):
@@ -33,11 +31,23 @@ class LRS3Dataset(BaseDataset):
         
         mediapipe_landmarks = np.load(mediapipe_landmarks_filename)
 
-        out_dict = self.sample_frames(video_path, preprocessed_landmarks, mediapipe_landmarks)
+        video = cv2.VideoCapture(video_path)
+        num_frames = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+
+        # pick random frame
+        frame_idx = np.random.randint(0, num_frames)
+        video.set(cv2.CAP_PROP_POS_FRAMES, frame_idx)
+        ret, image = video.read()
+        if not ret:
+            raise Exception('Video %s has no frames'%(sample))
         
-        out_dict['subject'] = video_path.split('/')[-2]
-        out_dict['filename'] = video_path.split('/')[-1].split('.')[0]
-        return out_dict
+        landmarks_fan = preprocessed_landmarks[frame_idx]
+        landmarks_mediapipe = mediapipe_landmarks[frame_idx]
+
+        data_dict = self.prepare_data(image=image, landmarks_fan=landmarks_fan, landmarks_mediapipe=landmarks_mediapipe)
+
+
+        return data_dict
 
 
 
@@ -56,8 +66,6 @@ def get_datasets_LRS3(config):
     return LRS3Dataset(train_list, config=config), LRS3Dataset(val_list, config=config, test=True), LRS3Dataset(test_list,
                                                                                                config=config,
                                                                                                test=True)
-
-
 
 
 def get_LRS3_test(config):

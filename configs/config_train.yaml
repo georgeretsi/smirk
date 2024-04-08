@@ -3,7 +3,7 @@ load_encoder: True
 load_fuse_generator: True
 device: cuda:0
 image_size: 224
-K: 1 # temporal sequence length
+K: 1 # temporal sequence length - no temporal data used here
 deterministic: False
 
 train:
@@ -15,68 +15,49 @@ train:
   log_path: logs/1
   log_losses_every: 10
   visualize_every: 50
-  mask_ratio: 0.01
-  mask_ratio_mul: 5
-  mask_dilation_radius: 10
-  save_every: 2
+  mask_ratio: 0.01  # % pixel to be retained inside the face mask
+  mask_dilation_radius: 10 # dilation of the initial face mask
+  save_every: 2 # save model every n epochs
   use_wandb: False
-  Ke: 1 # number of repeated frames for 2nd path
+  Ke: 1 # number of repeated frames for 2nd cycle path
   samples_per_epoch: 50000
-  use_base_model_for_regularization: True
+  use_base_model_for_regularization: False  # use the base model for regularization - when False the regularization is wrt zero
   resume_epoch: 0
-  train_scale_min: 1.2
-  train_scale_max: 1.8
-  test_scale: 1.6
-  norm_l1: False
+  train_scale_min: 1.2  # min scale for data augmentation during training
+  train_scale_max: 1.8 # max scale for data augmentation during training
+  test_scale: 1.6 # fixed scale for testing
 
   loss_weights:
-    landmark_loss: 100.0
-    perceptual_vgg_loss: 10.0
-    reconstruction_loss: 10.0
-    emotion_loss: 0.0
+    landmark_loss: 100.0   # landmark loss weight
+    perceptual_vgg_loss: 10.0  # RECONSTRUCTION - perceptual vgg loss weight
+    reconstruction_loss: 10.0  # RECONSTRUCTION - l1 loss weight
+    emotion_loss: 0.0  # extra emotion loss weight 
     jaw_regularization: 1e-2
-    expression_regularization: 1e-4
-    shape_regularization: 100
-    cycle_loss: 1.0
+    expression_regularization: 1e-3
+    shape_regularization: 100  
+    cycle_loss: 1.0  # CYCLE loss
     mica_loss: 0
-
-
-  augm_rand_percent: 1
-  augm_perm_percent: 1
-  augm_inj_percent: 1
-  augm_zero_percent: 1
 
   optimize_pose: False
   optimize_shape: False
-  optimize_expression: True
+  optimize_expression: True  # optimize only expression
 
-  # placeholders - to actually control the schedule, use the schedule in the next section
-  freeze_generator_in_second_path: False
+  # automatically tunable hyperparameters - just declared here
   freeze_encoder_in_second_path: False
-  freeze_encoder_in_first_path: False
-  freeze_generator_in_first_path: False
+  freeze_generator_in_second_path: False
 
-  freeze_schedule:
-    per_iteration: False
-    apply_on_first_path: False
-    apply_on_second_path: True
-    generator_first: False
-    alternate_first_second_path: False
-
-
+# architectural details - backbones and number of FLAME components
 arch:
-  backbone_pose: tf_mobilenetv3_small_minimal_100
+  backbone_pose: tf_mobilenetv3_small_minimal_100    
   backbone_shape: tf_mobilenetv3_large_minimal_100
   backbone_expression: tf_mobilenetv3_large_minimal_100
-  num_expression: 50
-  num_shape: 300
+  num_expression: 50 
+  num_shape: 300 # same as MICA
   use_eyelids: True
-  enable_fuse_generator: True
-
+  enable_fuse_generator: True 
 
 render:
   full_head: False  # full FLAME rendering
-  
 
 dataset:
   LRS3_path: /gpu-data4/filby/LRS3
@@ -100,8 +81,8 @@ dataset:
 
   MEAD_sides_path: /gpu-data4/filby/MEAD_preprocessed
 
-
-  LRS3_percentage: 0.0 
+  # percentage of data to use for each dataset
+  LRS3_percentage: 0.2
   LRS3_temporal_sampling: False
   MEAD_percentage: 0.1 
   FFHQ_percentage: 0.3 

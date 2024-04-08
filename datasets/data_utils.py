@@ -43,13 +43,18 @@ def load_dataloaders(config):
                                        list(dataset_percentages.values()), 
                                        config.train.batch_size, config.train.samples_per_epoch)
     
+    def collate_fn(batch):
+        # filter none
+        batch = [b for b in batch if b is not None]
+        return torch.utils.data.dataloader.default_collate(batch)
+        
     
     val_dataset = torch.utils.data.ConcatDataset([val_dataset_LRS3, val_dataset_MEAD])
                                              
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_sampler=sampler, num_workers=config.train.num_workers)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_sampler=sampler, num_workers=config.train.num_workers, collate_fn=collate_fn)
     
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=config.train.batch_size,
-                                                num_workers=config.train.num_workers, shuffle=False, drop_last=True)
+                                                num_workers=config.train.num_workers, shuffle=False, drop_last=True, collate_fn=collate_fn)
 
     return train_loader, val_loader
 

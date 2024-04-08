@@ -1,9 +1,7 @@
 import os
+from datasets.base_dataset import BaseDataset
 import numpy as np
 import cv2
-import sys
-from datasets.base_dataset import BaseDataset
-import sys
 
 class CelebADataset(BaseDataset):
     def __init__(self, data_list, config, test=False):
@@ -17,34 +15,44 @@ class CelebADataset(BaseDataset):
     def __getitem_aux__(self, index):
         key = self.keys[index]
 
-        fan_landmarks_path = os.path.join(self.config.dataset.CelebA_fan_landmarks_path)
-        mediapipe_landmarks_path = os.path.join(self.config.dataset.CelebA_mediapipe_landmarks_path)
-        folder_path = os.path.join(self.config.dataset.CelebA_path)
-
         files_list = self.data_list[key]
 
-        fan_landmarks_list = []
-        mediapipe_landmarks_list = []
-        for file in files_list:
-            fan_landmarks_files = os.path.join(fan_landmarks_path, file.replace('.jpg','.npy').replace(".png",".npy"))
-            fan_landmarks_list.append(fan_landmarks_files)
+        # select randomly one file from this subject
+        if len(files_list) == 0:
+            print('No files found for %s'%(key))
+            return None
+        
+        k = np.random.randint(0, len(files_list))
 
-            mediapipe_landmarks_files = os.path.join(mediapipe_landmarks_path, file.replace('.jpg','.npy').replace(".png",".npy"))
-            mediapipe_landmarks_list.append(mediapipe_landmarks_files)
+        image_filepath = os.path.join(self.config.dataset.CelebA_path, files_list[k])
+        landmarks_fan_filepath = os.path.join(self.config.dataset.CelebA_fan_landmarks_path, files_list[k].replace('.jpg','.npy'))
+        landmarks_mediapipe_filepath = os.path.join(self.config.dataset.CelebA_mediapipe_landmarks_path, files_list[k].replace('.jpg','.npy'))
 
-        files_list = [os.path.join(folder_path, file) for file in files_list]
+        if not os.path.exists(landmarks_mediapipe_filepath):
+            print('Mediapipe landmarks not found for %s'%(files_list[k]))
+            return None
+    
+        if not os.path.exists(landmarks_fan_filepath):
+            print('Fan landmarks not found for %s'%(files_list[k]))
+            return None
+        
+        image = cv2.imread(image_filepath)
+        landmarks_fan = np.load(landmarks_fan_filepath, allow_pickle=True)
+        if landmarks_fan is None or landmarks_fan.size == 1:
+            return None
+        
+        landmarks_fan = landmarks_fan[0]
 
-        data_dict = self.sample_frames(files_list, fan_landmarks_list, mediapipe_landmarks_list)
+        landmarks_mediapipe = np.load(landmarks_mediapipe_filepath, allow_pickle=True)
 
-        data_dict['subject'] = ""
-        data_dict['filename'] = ""
 
+        data_dict = self.prepare_data(image=image, landmarks_fan=landmarks_fan, landmarks_mediapipe=landmarks_mediapipe)
         return data_dict
 
 
 
 def get_datasets_CelebA(config=None):
-    file = "datasets/identity_CelebA.txt"
+    file = "datasets/identity_CelebA.txt" # provided by CelebA dataset
     with open(file) as f:
         lines = f.readlines()
 
@@ -62,9 +70,6 @@ def get_datasets_CelebA(config=None):
 
         train_dict[subject].append(file)
         num_files += 1
-
-    print("Number of subjects CeleBA: ", len(train_dict.keys()))
-    print("Number of files CeleBA: ", num_files)
 
     return CelebADataset(train_dict, config)
 

@@ -22,10 +22,8 @@ class SmirkTrainer(BaseTrainer):
         
         self.flame = FLAME()
 
-        self.renderer = Renderer(config)
+        self.renderer = Renderer(render_full_head=False)
         self.setup_losses()
-
-        self.logger = None
 
         self.templates = utils.load_templates()
             
@@ -38,9 +36,7 @@ class SmirkTrainer(BaseTrainer):
 
         encoder_output = self.smirk_encoder(batch['img'])
         
-        if self.config.train.freeze_encoder_in_first_path:
-            encoder_output = {key: value.detach() for key, value in encoder_output.items()}
-        
+
         with torch.no_grad():
             base_output = self.base_encoder(batch['img'])
 
@@ -83,20 +79,22 @@ class SmirkTrainer(BaseTrainer):
             rendered_mask = 1 - (rendered_img == 0).all(dim=1, keepdim=True).float()
             tmask_ratio = self.config.train.mask_ratio #* self.config.train.mask_ratio_mul # upper bound on the number of points to sample
             
+            # select pixel points from face vertices
             npoints, _ = masking_utils.mesh_based_mask_uniform_faces(flame_output['transformed_vertices'], 
                                                                      flame_faces=self.flame.faces_tensor,
                                                                      face_probabilities=self.face_probabilities,
                                                                      mask_ratio=tmask_ratio)
             
+            # construct a mask with the selected points using the initial pixel values
             extra_points = masking_utils.transfer_pixels(img, npoints, npoints)
+            
+            # completed masked img - mask out the face and add the extra points
             masked_img = masking_utils.masking(img, masks, extra_points, self.config.train.mask_dilation_radius, rendered_mask=rendered_mask)
 
             reconstructed_img = self.smirk_generator(torch.cat([rendered_img, masked_img], dim=1))
 
             # reconstruction loss
-            img_mean, img_std = (torch.mean(img, dim=[2,3], keepdim=True).detach(), torch.std(img, dim=[2,3], keepdim=True).detach() + 1e-5) if self.config.train.norm_l1 else (0, 1)
-
-            reconstruction_loss = F.l1_loss((reconstructed_img - img_mean)/img_std, (img - img_mean)/img_std, reduction='none')
+            reconstruction_loss = F.l1_loss(reconstructed_img, img , reduction='none')
 
             # for visualization
             loss_img = reconstruction_loss.mean(dim=1, keepdim=True)
@@ -117,16 +115,8 @@ class SmirkTrainer(BaseTrainer):
                     param.requires_grad_(True)
                 self.smirk_generator.train()
 
-                mead_mask = torch.Tensor(['mead' in tname.lower() for tname in batch['dataset_name']]).bool()
-               
-                valid_mask = mead_mask.to(img.device)
-                if torch.sum(valid_mask) == 0:
-                    losses['emotion_loss'] = 0
-                else:
-                    losses['emotion_loss'] = self.emotion_loss(reconstructed_img_p[valid_mask], img[valid_mask], metric='l2', use_mean=False)
-                    #losses['emotion_loss'] = F.relu(losses['emotion_loss'] - 0.1).mean()
-                    losses['emotion_loss'] = losses['emotion_loss'].mean()
-                # perceptual_losses += losses['emotion_loss'] * self.config.train.loss_weights['emotion_loss']
+                losses['emotion_loss'] = self.emotion_loss(reconstructed_img_p, img, metric='l2', use_mean=False)
+                losses['emotion_loss'] = losses['emotion_loss'].mean()
             else:
                 losses['emotion_loss'] = 0
         else:
@@ -171,6 +161,11 @@ class SmirkTrainer(BaseTrainer):
         outputs['rendered_img'] = rendered_img
         outputs['vertices'] = flame_output['vertices']
         outputs['img'] = img
+        outputs['landmarks_fan_gt'] = batch['landmarks_fan']
+        outputs['landmarks_fan'] = flame_output['landmarks_fan']
+        outputs['landmarks_mp'] = flame_output['landmarks_mp']
+        outputs['landmarks_mp_gt'] = batch['landmarks_mp']
+        
         if self.config.arch.enable_fuse_generator:
             outputs['loss_img'] = loss_img
             outputs['reconstructed_img'] = reconstructed_img
@@ -192,7 +187,7 @@ class SmirkTrainer(BaseTrainer):
         masks = batch['mask']
         
         # number of multiple versions for the second path
-        Ke = min(4, self.config.train.Ke)
+        Ke = self.config.train.Ke
         
         # start from the same encoder output and add noise to expression params
         # hard clone flame_feats
@@ -201,49 +196,31 @@ class SmirkTrainer(BaseTrainer):
             tmp = v.clone().detach()
             flame_feats[k] = torch.cat(Ke * [tmp], dim=0)
 
-        # split Ke * B into 4 random groups
-        gids = torch.randperm(Ke * B).to(self.config.device) 
-        # 4 groups 
-
-        # use augm percentages to split gids
-        wperc = np.asarray([self.config.train.augm_rand_percent, 
-                           self.config.train.augm_perm_percent, 
-                           self.config.train.augm_inj_percent, 
-                           self.config.train.augm_zero_percent])
-        # wperc = [1., 1., 1., 1.]
-        wperc = wperc / np.sum(wperc)
-        wperc = np.cumsum(wperc) * Ke * B
-
-        gids = [gids[:int(wperc[0])], gids[int(wperc[0]): int(wperc[1])], gids[int(wperc[1]): int(wperc[2])], gids[int(wperc[2]):]]
+        # split Ke * B into 4 random groups        
+        gids = torch.randperm(Ke * B)
+        # 4 groups
+        gids = [gids[:Ke * B // 4], gids[Ke * B // 4: 2 * Ke * B // 4], gids[2 * Ke * B // 4: 3 * Ke * B // 4], gids[3 * Ke * B // 4:]] 
 
         feats_dim = flame_feats['expression_params'].size(1)        
 
-        #''
         # ---------------- random expression ---------------- #
-        # 1 of 4 Ke - random expressions!        
-        if self.config.train.augm_rand_percent > 0:    
-            param_mask = torch.bernoulli(torch.ones((len(gids[0]), feats_dim)) * 0.5).to(self.config.device)
-            new_expressions = (torch.randn((len(gids[0]), feats_dim)).to(self.config.device)) * (1 + 2 * torch.rand((len(gids[0]), 1)).cuda()) * param_mask + flame_feats['expression_params'][gids[0]]
-            flame_feats['expression_params'][gids[0]] = torch.clamp(new_expressions, -4.0, 4.0) +  (0 + 0.2 * torch.rand((len(gids[0]), 1)).cuda()) * torch.randn((len(gids[0]), feats_dim)).to(self.config.device)
-            
-            #expression_magn = (new_expressions ** 2).mean(dim=1) 
-            #expresion_scale = (torch.clamp(expression_magn, 0, 2.0) / expression_magn).sqrt()
-            #flame_feats['expression_params'][gids[0]] = expresion_scale.view(-1, 1) * new_expressions
+        # 1 of 4 Ke - random expressions!  
+        param_mask = torch.bernoulli(torch.ones((len(gids[0]), feats_dim)) * 0.5).to(self.config.device)
+        
+        new_expressions = (torch.randn((len(gids[0]), feats_dim)).to(self.config.device)) * (1 + 2 * torch.rand((len(gids[0]), 1)).to(self.config.device)) * param_mask + flame_feats['expression_params'][gids[0]]
+        flame_feats['expression_params'][gids[0]] = torch.clamp(new_expressions, -4.0, 4.0) +  (0 + 0.2 * torch.rand((len(gids[0]), 1)).to(self.config.device)) * torch.randn((len(gids[0]), feats_dim)).to(self.config.device)
         
         # ---------------- permutation of expression ---------------- #
-        # 2 of 4 Ke - permutation!     
-        if self.config.train.augm_perm_percent > 0:   
-            flame_feats['expression_params'][gids[1]] = (0.25 + 1.5 * torch.rand((len(gids[1]), 1)).cuda()) * flame_feats['expression_params'][gids[1]][torch.randperm(len(gids[1]))] + (0 + 0.2 * torch.rand((len(gids[1]), 1)).cuda()) *  torch.randn((len(gids[1]), feats_dim)).to(self.config.device)
+        # 2 of 4 Ke - permutation!    + extra noise 
+        flame_feats['expression_params'][gids[1]] = (0.25 + 1.25 * torch.rand((len(gids[1]), 1)).to(self.config.device)) * flame_feats['expression_params'][gids[1]][torch.randperm(len(gids[1]))] + \
+                                        (0 + 0.2 * torch.rand((len(gids[1]), 1)).to(self.config.device)) *  torch.randn((len(gids[1]), feats_dim)).to(self.config.device)
         
         # ---------------- template injection ---------------- #
-        # 3 of 4 Ke - template injection!   
-        if self.config.train.augm_inj_percent > 0:
-            for i in range(len(gids[2])):
-                expression = self.load_random_template(num_expressions=self.config.arch.num_expression)
-                flame_feats['expression_params'][gids[2][i],:self.config.arch.num_expression] = (0.25 + 1.5 * torch.rand((1, 1)).cuda()) * torch.Tensor(expression).to(self.config.device)
-            flame_feats['expression_params'][gids[2]] += (0 + 0.2 * torch.rand((len(gids[2]), 1)).cuda()) * torch.randn((len(gids[2]), feats_dim)).to(self.config.device)
-        #'''
-        
+        # 3 of 4 Ke - template injection!  + extra noise
+        for i in range(len(gids[2])):
+            expression = self.load_random_template(num_expressions=self.config.arch.num_expression)
+            flame_feats['expression_params'][gids[2][i],:self.config.arch.num_expression] = (0.25 + 1.25 * torch.rand((1, 1)).to(self.config.device)) * torch.Tensor(expression).to(self.config.device)
+        flame_feats['expression_params'][gids[2]] += (0 + 0.2 * torch.rand((len(gids[2]), 1)).to(self.config.device)) * torch.randn((len(gids[2]), feats_dim)).to(self.config.device)
 
         # ---------------- tweak jaw for all paths ---------------- #
         scale_mask = torch.Tensor([1, .1, .1]).to(self.config.device).view(1, 3) * torch.bernoulli(torch.ones(Ke * B) * 0.5).to(self.config.device).view(-1, 1)
@@ -252,29 +229,23 @@ class SmirkTrainer(BaseTrainer):
         
         # ---------------- tweak eyelids for all paths ---------------- #
         if self.config.arch.use_eyelids:
-            flame_feats['eyelid_params'] += (-1 + 2 * torch.rand(size=flame_feats['eyelid_params'].size()).to(self.config.device)) * 0.5
-            # flame_feats['eyelid_params'] = torch.clamp(flame_feats['eyelid_params'], -0.5, 1.0)
+            flame_feats['eyelid_params'] += (-1 + 2 * torch.rand(size=flame_feats['eyelid_params'].size()).to(self.config.device)) * 0.25
             flame_feats['eyelid_params'] = torch.clamp(flame_feats['eyelid_params'], 0.0, 1.0)
 
         # ---------------- zero expression ---------------- #
         # 4 of 4 Ke - zero expression!     
-        if self.config.train.augm_zero_percent > 0:   
-            # use zero expression as one of the paths if Ke > 1 - let the eyelids to move a lot
-            flame_feats['expression_params'][gids[3]] *= 0.0
-            flame_feats['expression_params'][gids[3]] += (0 + 0.2 * torch.rand((len(gids[3]), 1)).cuda()) * torch.randn((len(gids[3]), flame_feats['expression_params'].size(1))).to(self.config.device)
-            
-            flame_feats['jaw_params'][gids[3]] *= 0.0
-            flame_feats['eyelid_params'][gids[3]] = torch.rand(size=flame_feats['eyelid_params'][gids[3]].size()).to(self.config.device)        
-
-        # small tweak on pose params
-        #flame_feats['pose_params'] += torch.randn(flame_feats['pose_params'].size()).to(self.config.device) * 0.01 * torch.pi
+        # let the eyelids to move a lot - extra noise
+        flame_feats['expression_params'][gids[3]] *= 0.0
+        flame_feats['expression_params'][gids[3]] += (0 + 0.2 * torch.rand((len(gids[3]), 1)).to(self.config.device)) * torch.randn((len(gids[3]), flame_feats['expression_params'].size(1))).to(self.config.device)
+        
+        flame_feats['jaw_params'][gids[3]] *= 0.0
+        flame_feats['eyelid_params'][gids[3]] = torch.rand(size=flame_feats['eyelid_params'][gids[3]].size()).to(self.config.device)        
 
         flame_feats['expression_params'] = flame_feats['expression_params'].detach()
         flame_feats['pose_params'] = flame_feats['pose_params'].detach()
         flame_feats['shape_params'] = flame_feats['shape_params'].detach()
         flame_feats['jaw_params'] = flame_feats['jaw_params'].detach()
         flame_feats['eyelid_params'] = flame_feats['eyelid_params'].detach()
-
 
         # after defining param augmentation, we can render the new faces
         with torch.no_grad():
@@ -289,8 +260,11 @@ class SmirkTrainer(BaseTrainer):
 
             
             # sample points for the image reconstruction
+
+            # with transfer pixel we can use more points if needed in cycle to quickly learn realistic generations!
+            tmask_ratio = self.config.train.mask_ratio #* 2.0
+
             # use the initial flame estimation to sample points from the initial image
-            tmask_ratio = self.config.train.mask_ratio * 3.0 #* self.config.train.mask_ratio_mul 
             points1, sampled_coords = masking_utils.mesh_based_mask_uniform_faces(flame_output['transformed_vertices'], 
                                                                      flame_faces=self.flame.faces_tensor,
                                                                      face_probabilities=self.face_probabilities,
@@ -317,41 +291,14 @@ class SmirkTrainer(BaseTrainer):
                 
         masked_img_2nd_path = masking_utils.masking(img.repeat(Ke, 1, 1, 1), masks.repeat(Ke, 1, 1, 1), extra_points, self.config.train.mask_dilation_radius, 
                                       rendered_mask=rendered_mask, extra_noise=True, random_mask=0.005)
-
-        
-        ww = 1
         
         reconstructed_img_2nd_path = self.smirk_generator(torch.cat([rendered_img_2nd_path, masked_img_2nd_path], dim=1).detach())
         if self.config.train.freeze_generator_in_second_path:
             reconstructed_img_2nd_path = reconstructed_img_2nd_path.detach()
-            #ww = 10.0 
-        
-        
-        #if self.config.train.freeze_generator_in_second_path:
-        #    ww = 10
-        #else:
-        #    ww = 1
-         
-        '''
-        if self.config.train.freeze_generator_in_second_path:
-            with torch.no_grad():
-                reconstructed_img_2nd_path = self.smirk_generator(torch.cat([rendered_img_2nd_path, masked_img_2nd_path], dim=1).detach())
-            #print('detached')
-            reconstructed_img_2nd_path = reconstructed_img_2nd_path.detach()
-            #ww = 100
-        else:
-            reconstructed_img_2nd_path = self.smirk_generator(torch.cat([rendered_img_2nd_path, masked_img_2nd_path], dim=1).detach())
-        '''
+
         
         recon_feats = self.smirk_encoder(reconstructed_img_2nd_path.view(Ke * B, C, H, W)) 
-        #if self.config.train.freeze_encoder_in_second_path:
-        #    ww = .1 
-            
-        #if self.config.train.freeze_encoder_in_second_path:
-        #    for key in recon_feats.keys():
-        #        recon_feats[key].requires_grad_(True)
 
-        #with torch.no_grad():
         flame_output_2nd_path_2 = self.flame.forward(recon_feats)
         rendered_img_2nd_path_2 = self.renderer.forward(flame_output_2nd_path_2['vertices'], recon_feats['cam'])['rendered_img']
 
@@ -359,32 +306,15 @@ class SmirkTrainer(BaseTrainer):
         
         cycle_loss = 1.0 * F.mse_loss(recon_feats['expression_params'], flame_feats['expression_params']) + \
                      10.0 * F.mse_loss(recon_feats['jaw_params'], flame_feats['jaw_params'])
-
         
         if self.config.arch.use_eyelids:
             cycle_loss += 10.0 * F.mse_loss(recon_feats['eyelid_params'], flame_feats['eyelid_params'])
 
-        
         if not self.config.train.freeze_generator_in_second_path:                
-            
             cycle_loss += 1.0 * F.mse_loss(recon_feats['shape_params'], flame_feats['shape_params']) 
 
-            #cycle_loss *= 0.1 # scale down generator loss
-
-
-
-        
         losses['cycle_loss']  = cycle_loss
-        loss_second_path = ww * losses['cycle_loss'] * self.config.train.loss_weights.cycle_loss
-
-        '''
-        if self.config.train.loss_weights['identity_loss'] > 0:
-            # freeze the generator
-            identity_loss = self.identity_loss(reconstructed_img_2nd_path, img.repeat(Ke, 1, 1, 1), use_mean=False)
-            losses['identity_loss'] = F.relu(identity_loss - 0.3).mean()
-            
-            loss_second_path +=  losses['identity_loss'] * self.config.train.loss_weights['identity_loss'] 
-        '''
+        loss_second_path = losses['cycle_loss'] * self.config.train.loss_weights.cycle_loss
 
         for key, value in losses.items():
             losses[key] = value.item() if isinstance(value, torch.Tensor) else value
@@ -398,49 +328,6 @@ class SmirkTrainer(BaseTrainer):
                                              masked_img_2nd_path.detach().cpu().view(Ke, B, C, H, W).permute(1, 0 , 2, 3, 4).reshape(-1, C, H, W),
                                              reconstructed_img_2nd_path.detach().cpu().view(Ke, B,  C, H, W).permute(1, 0 , 2, 3, 4).reshape(-1, C, H, W), 
                                              rendered_img_2nd_path_2.detach().cpu().view(Ke, B, C, H, W).permute(1, 0 , 2, 3, 4).reshape(-1, C, H, W)], dim=1).reshape(-1, C, H, W)
-
-            
-            # create images of the histograms for expression params
-            '''
-            import matplotlib.pyplot as plt
-            
-            def histogram_to_image(data): 
-                
-                data = data.flatten()
-                
-                #hist, bin_edges = np.histogram(data, bins=bins)
-                
-                # plt bar 
-                
-                #fig, ax = plt.subplots(figsize=figsize, dpi=dpi)
-                #ax.bar(bin_edges[:-1], hist)
-                #ax.bar(np.arange(data.shape[0]), data)
-                
-                fig = plt.Figure(figsize=(7,5), dpi=300)
-                # canvas = fig.canvas
-                indices = np.arange(data.shape[0])
-                plt.bar(indices, data)
-                # y axis range from -4 to 4
-                plt.ylim(-4, 4)
-                plt.savefig('temp.png')
-                plt.close()
-                
-                image = cv2.imread('temp.png')
-                
-                
-                # resize to config.train.image_size
-                image = cv2.resize(image, (self.config.image_size, self.config.image_size)) /255.0
-                
-                return image
-            
-            
-            hist1 = np.stack([histogram_to_image(tmp) for tmp in flame_feats['expression_params'].detach().cpu().numpy()])
-            hist2 = np.stack([histogram_to_image(tmp) for tmp in recon_feats['expression_params'].detach().cpu().numpy()])
-            
-            outputs['hist1'] = torch.from_numpy(hist1).permute(0, 3, 1, 2)
-            outputs['hist2'] = torch.from_numpy(hist2).permute(0, 3, 1, 2)
-            '''
-            
             
         return outputs, losses, loss_second_path
 
@@ -467,103 +354,30 @@ class SmirkTrainer(BaseTrainer):
         else:
             self.eval()
             torch.set_grad_enabled(False)
-
-
-        '''
-        if phase == 'train':
-            # ------- freeze the parts of the encoder that we don't optimize for ------- #
-            utils.freeze_module(self.smirk_encoder.pose_encoder, 'pose encoder') if not self.config.train.optimize_pose else None
-            utils.freeze_module(self.smirk_encoder.shape_encoder, 'shape encoder') if not self.config.train.optimize_shape else None
-            utils.freeze_module(self.smirk_encoder.expression_encoder, 'expression encoder') if not self.config.train.optimize_expression else None
-    
-            if self.config.train.freeze_encoder_in_first_path:
-                utils.freeze_module(self.smirk_encoder, 'encoder')
-            if self.config.train.freeze_generator_in_first_path:
-                utils.freeze_module(self.smirk_generator, 'fuse generator')
-        '''
                 
         outputs1, losses1, loss_first_path, encoder_output = self.step1(batch)
 
         if phase == 'train':
-            
-            message = 'First path '
-            if self.config.train.freeze_encoder_in_first_path:
-                self.freeze_encoder()
-
-
-            #    message += 'freeze encoder '
-            #else:
-            #    self.unfreeze_encoder()
-            #    message += 'unfreeze encoder '
-                
-            #utils.unfreeze_module(self.smirk_generator, 'fuse generator')
-            if self.config.train.freeze_generator_in_first_path:
-                utils.freeze_module(self.smirk_generator, 'fuse generator')
-                
-            #    message += 'freeze generator'
-            #else:
-            #    utils.unfreeze_module(self.smirk_generator, 'fuse generator')
-            #    message += 'unfreeze generator'
-                
-            #print(message)
-            
-            
             self.optimizers_zero_grad()
             loss_first_path.backward()
-            self.optimizers_step(step_encoder=not self.config.train.freeze_encoder_in_first_path, 
-                                step_fuse_generator=not self.config.train.freeze_generator_in_first_path)
-
+            self.optimizers_step(step_encoder=True,  step_fuse_generator=True)
              
-            if self.config.train.freeze_encoder_in_first_path:
-                self.unfreeze_encoder()
-            if self.config.train.freeze_generator_in_first_path:
-                utils.unfreeze_module(self.smirk_generator, 'fuse generator')
-                
         if (self.config.train.loss_weights['cycle_loss'] > 0) and (phase == 'train'):
            
-            #self.config.train.freeze_encoder_in_second_path = False
-            #self.config.train.freeze_generator_in_second_path = True
-           
-           
             if self.config.train.freeze_encoder_in_second_path:
                 self.freeze_encoder()
-                #self.smirk_encoder.eval() # cant freeze the encoder here, so just set it to eval mode
             if self.config.train.freeze_generator_in_second_path:
                 utils.freeze_module(self.smirk_generator, 'fuse generator')
-             
-            '''
-            message = 'Second path '
-            if self.config.train.freeze_encoder_in_second_path:
-                self.freeze_encoder()
-                #self.unfreeze_encoder()
-                #self.smirk_encoder.eval()
-                message += 'freeze encoder '
-            else:
-                self.unfreeze_encoder()
-                message += 'unfreeze encoder '
-            
-            if self.config.train.freeze_generator_in_second_path:
-                utils.freeze_module(self.smirk_generator, 'fuse generator')
-                message += 'freeze generator'
-            else:
-                utils.unfreeze_module(self.smirk_generator, 'fuse generator') 
-                message += 'unfreeze generator'
-                
-            #print(message)
-            '''
                     
             outputs2, losses2, loss_second_path = self.step2(encoder_output, batch, batch_idx, phase)
             
             self.optimizers_zero_grad()
             loss_second_path.backward()
+
+            # gradient clip for generator - we want only details to be guided 
+            if not self.config.train.freeze_generator_in_second_path:
+                torch.nn.utils.clip_grad_norm_(self.smirk_generator.parameters(), 0.1)
             
-            # clip !
-            #if not self.config.train.freeze_encoder_in_second_path:
-            #    torch.nn.utils.clip_grad_norm_(self.smirk_encoder.parameters(), 1e-2)
-
-            #if not self.config.train.freeze_generator_in_second_path:
-            #    torch.nn.utils.clip_grad_norm_(self.smirk_generator.parameters(), 1e-2)
-
             self.optimizers_step(step_encoder=not self.config.train.freeze_encoder_in_second_path, 
                                  step_fuse_generator=not self.config.train.freeze_generator_in_second_path)
 

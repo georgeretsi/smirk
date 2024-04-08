@@ -7,6 +7,7 @@ import cv2
 import os
 import random
 import copy
+from src.utils.utils import batch_draw_keypoints, make_grid_from_opencv_images
 
 class BaseTrainer(nn.Module):
     def __init__(self, config):
@@ -22,8 +23,6 @@ class BaseTrainer(nn.Module):
             loss_str = ''
             for k, v in losses.items():
                 loss_str += f'{k}: {v:.6f} '
-                if self.logger is not None:
-                    self.logger.log({f'{phase}/{k}': v})
             print(loss_str)
 
     def configure_optimizers(self, n_steps):
@@ -74,8 +73,6 @@ class BaseTrainer(nn.Module):
 
         return templates[random_index][:num_expressions]
         
-    def setup_logger(self, wandb_run):
-        self.logger = wandb_run
 
     def setup_losses(self):
         from src.losses.VGGPerceptualLoss import VGGPerceptualLoss
@@ -130,15 +127,22 @@ class BaseTrainer(nn.Module):
             self.smirk_generator_optimizer.step()
 
 
-    def save_visualizations(self, outputs, save_path, show_landmarks=True):
+    def save_visualizations(self, outputs, save_path, show_landmarks=False):
         nrow = 1
         
         if 'img' in outputs and 'rendered_img' in outputs and 'masked_1st_path' in outputs:
             outputs['overlap_image'] = outputs['img'] * 0.7 + outputs['rendered_img'] * 0.3
             outputs['overlap_image_pixels'] = outputs['img'] * 0.7 +  0.3 * outputs['masked_1st_path']
         
-        original_img_with_landmarks = outputs['img']
-        original_grid = make_grid(original_img_with_landmarks, nrow=nrow)
+        if show_landmarks:
+            original_img_with_landmarks = batch_draw_keypoints(outputs['img'], outputs['landmarks_mp'], color=(0,255,0))
+            original_img_with_landmarks = batch_draw_keypoints(original_img_with_landmarks, outputs['landmarks_mp_gt'], color=(0,0,255))
+            original_img_with_landmarks = batch_draw_keypoints(original_img_with_landmarks, outputs['landmarks_fan'][:,:17], color=(255,0,255))
+            original_img_with_landmarks = batch_draw_keypoints(original_img_with_landmarks, outputs['landmarks_fan_gt'][:,:17], color=(255,255,255))
+            original_grid = make_grid_from_opencv_images(original_img_with_landmarks, nrow=nrow)
+        else:
+            original_img_with_landmarks = outputs['img']
+            original_grid = make_grid(original_img_with_landmarks, nrow=nrow)
 
         image_keys = ['img_mica', 'rendered_img_base', 'rendered_img', 
                       'overlap_image', 'overlap_image_pixels',
@@ -206,6 +210,12 @@ class BaseTrainer(nn.Module):
             if '2nd_path' in outputs:
                 visualizations['2nd_path'] = outputs['2nd_path']
 
+        # landmarks
+        visualizations['landmarks_mp'] = outputs['landmarks_mp']
+        visualizations['landmarks_mp_gt'] = outputs['landmarks_mp_gt']
+        visualizations['landmarks_fan'] = outputs['landmarks_fan']
+        visualizations['landmarks_fan_gt'] = outputs['landmarks_fan_gt']
+
         return visualizations
 
     def save_model(self, state_dict, save_path):
@@ -241,26 +251,13 @@ class BaseTrainer(nn.Module):
 
 
     def set_freeze_status(self, config, batch_idx, epoch_idx):
-        self.config.train.freeze_encoder_in_first_path = False
-        self.config.train.freeze_generator_in_first_path = False
+        #self.config.train.freeze_encoder_in_first_path = False
+        #self.config.train.freeze_generator_in_first_path = False
         self.config.train.freeze_encoder_in_second_path = False
         self.config.train.freeze_generator_in_second_path = False
 
-        decision_idx = batch_idx if config.train.freeze_schedule.per_iteration else epoch_idx
+        #decision_idx = batch_idx if config.train.freeze_schedule.per_iteration else epoch_idx
+        decision_idx_second_path = batch_idx #epoch_idx 
 
-        if config.train.freeze_schedule.generator_first:
-            decision_idx = decision_idx + 1
-
-        decision_idx_first_path = decision_idx
-        decision_idx_second_path = decision_idx + 1 if config.train.freeze_schedule.alternate_first_second_path else decision_idx_first_path
-
-        if config.train.freeze_schedule.apply_on_first_path:
-            self.config.train.freeze_encoder_in_first_path = decision_idx_first_path % 2 == 0
-            self.config.train.freeze_generator_in_first_path = (decision_idx_first_path + 1) % 2 == 0
-        
-        if config.train.freeze_schedule.apply_on_second_path:
-            self.config.train.freeze_encoder_in_second_path = decision_idx_second_path % 2 == 0
-            self.config.train.freeze_generator_in_second_path = (decision_idx_second_path + 1) % 2 == 0
-
-
-        #print(f'freeze_encoder_in_first_path: {self.config.train.freeze_encoder_in_first_path}, freeze_generator_in_first_path: {self.config.train.freeze_generator_in_first_path}, freeze_encoder_in_second_path: {self.config.train.freeze_encoder_in_second_path}, freeze_generator_in_second_path: {self.config.train.freeze_generator_in_second_path}')
+        self.config.train.freeze_encoder_in_second_path = decision_idx_second_path % 2 == 0
+        self.config.train.freeze_generator_in_second_path = decision_idx_second_path % 2 == 1
