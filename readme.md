@@ -48,12 +48,17 @@ bash quick_install.sh
 
 
 ## Demo 
-We provide a demo that can be used to test the model on a single image or a video file. 
+We provide two demos. One that can be used to test the model on a single image,
 
 ```bash
 python demo.py --input_path samples/test_image2.png --out_path results/ --checkpoint pretrained_models/SMIRK_em1.pt --crop
 ```
 
+and one that can be used to test the model on a video,
+
+```bash
+python demo_video.py --input_path samples/dafoe.mp4 --out_path results/ --checkpoint pretrained_models/SMIRK_em1.pt --crop --render_orig
+```
 
 ## Training
 <details>

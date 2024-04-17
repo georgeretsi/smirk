@@ -10,6 +10,7 @@ import os
 import src.utils.masking as masking_utils
 from utils.mediapipe_utils import run_mediapipe
 from datasets.base_dataset import create_mask
+import torch.nn.functional as F
 
 
 def crop_face(frame, landmarks, scale=1.0, image_size=224):
@@ -42,6 +43,7 @@ if __name__ == '__main__':
     parser.add_argument('--crop', action='store_true', help='Crop the face using mediapipe')
     parser.add_argument('--out_path', type=str, default='output', help='Path to save the output (will be created if not exists)')
     parser.add_argument('--use_smirk_generator', action='store_true', help='Use SMIRK neural image to image translator to reconstruct the image')
+    parser.add_argument('--render_orig', action='store_true', help='Present the result w.r.t. the original image/video size')
 
     args = parser.parse_args()
 
@@ -74,6 +76,8 @@ if __name__ == '__main__':
 
     
     image = cv2.imread(args.input_path)
+    orig_image_height, orig_image_width, _ = image.shape
+
     kpt_mediapipe = run_mediapipe(image)
 
     # crop face if needed
@@ -109,7 +113,21 @@ if __name__ == '__main__':
     
     rendered_img = renderer_output['rendered_img']
 
-    grid = torch.cat([cropped_image, rendered_img], dim=3)
+
+    if args.render_orig:
+        if args.crop:
+            rendered_img_numpy = (rendered_img.squeeze(0).permute(1,2,0).detach().cpu().numpy()*255.0).astype(np.uint8)               
+            rendered_img_orig = warp(rendered_img_numpy, tform, output_shape=(orig_image_height, orig_image_width), preserve_range=True).astype(np.uint8)
+            # back to pytorch to concatenate with full_image
+            rendered_img_orig = torch.Tensor(rendered_img_orig).permute(2,0,1).unsqueeze(0).float()/255.0
+        else:
+            rendered_img_orig = F.interpolate(rendered_img, (orig_image_height, orig_image_width), mode='bilinear').cpu()
+
+        full_image = torch.Tensor(cv2.cvtColor(image, cv2.COLOR_BGR2RGB)).permute(2,0,1).unsqueeze(0).float()/255.0
+        grid = torch.cat([full_image, rendered_img_orig], dim=3)
+    else:
+        grid = torch.cat([cropped_image, rendered_img], dim=3)
+
 
     # ---- create the neural renderer reconstructed img ---- #
     if args.use_smirk_generator:
@@ -150,7 +168,18 @@ if __name__ == '__main__':
 
         reconstructed_img = smirk_generator(smirk_generator_input)
 
-        grid = torch.cat([grid, reconstructed_img], dim=3)
+        if args.render_orig:
+            if args.crop:
+                reconstructed_img_numpy = (reconstructed_img.squeeze(0).permute(1,2,0).detach().cpu().numpy()*255.0).astype(np.uint8)               
+                reconstructed_img_orig = warp(reconstructed_img_numpy, tform, output_shape=(orig_image_height, orig_image_width), preserve_range=True).astype(np.uint8)
+                # back to pytorch to concatenate with full_image
+                reconstructed_img_orig = torch.Tensor(reconstructed_img_orig).permute(2,0,1).unsqueeze(0).float()/255.0
+            else:
+                reconstructed_img_orig = F.interpolate(reconstructed_img, (orig_image_height, orig_image_width), mode='bilinear').cpu()
+
+            grid = torch.cat([grid, reconstructed_img_orig], dim=3)
+        else:
+            grid = torch.cat([grid, reconstructed_img], dim=3)
 
     grid_numpy = grid.squeeze(0).permute(1,2,0).detach().cpu().numpy()*255.0
     grid_numpy = grid_numpy.astype(np.uint8)

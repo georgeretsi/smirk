@@ -4,17 +4,18 @@ from mediapipe.tasks.python import vision
 import cv2
 import numpy as np
 
-def run_mediapipe(image):
-    base_options = python.BaseOptions(model_asset_path='assets/face_landmarker.task')
-    options = vision.FaceLandmarkerOptions(base_options=base_options,
-                                        output_face_blendshapes=True,
-                                        output_facial_transformation_matrixes=True,
-                                        num_faces=1,
-                                        min_face_detection_confidence=0.1,
-                                        min_face_presence_confidence=0.1
-                                        )
-    detector = vision.FaceLandmarker.create_from_options(options)
+base_options = python.BaseOptions(model_asset_path='assets/face_landmarker.task')
+options = vision.FaceLandmarkerOptions(base_options=base_options,
+                                    output_face_blendshapes=True,
+                                    output_facial_transformation_matrixes=True,
+                                    num_faces=1,
+                                    min_face_detection_confidence=0.1,
+                                    min_face_presence_confidence=0.1
+                                    )
+detector = vision.FaceLandmarker.create_from_options(options)
 
+
+def run_mediapipe(image):
     # print(image.shape)    
     image_numpy = cv2.cvtColor(image,cv2.COLOR_BGR2RGB)
 
