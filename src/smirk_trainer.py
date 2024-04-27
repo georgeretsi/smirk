@@ -18,9 +18,9 @@ class SmirkTrainer(BaseTrainer):
         if self.config.arch.enable_fuse_generator:
             self.smirk_generator = SmirkGenerator(in_channels=6, out_channels=3, init_features=32, res_blocks=5)
             
-        self.smirk_encoder = SmirkEncoder()
+        self.smirk_encoder = SmirkEncoder(n_exp=self.config.arch.num_expression, n_shape=self.config.arch.num_shape)
         
-        self.flame = FLAME()
+        self.flame = FLAME(n_exp=self.config.arch.num_expression, n_shape=self.config.arch.num_shape)
 
         self.renderer = Renderer(render_full_head=False)
         self.setup_losses()

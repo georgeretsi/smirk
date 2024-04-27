@@ -85,8 +85,10 @@ class MICA(nn.Module):
             mica_output = self.forward(img.reshape(-1, 3, 112, 112))
             mica_shape = mica_output['shape_params'].detach()
 
-        if D > mica_shape.size(-1):
-            mica_shape = torch.cat([mica_shape, torch.zeros(B, D - mica_shape.size(-1)).to(self.config.device)], dim=-1)
+        if mica_shape.size(-1) > D: 
+            print(f"Warning: MICA output has more dimensions ({mica_shape.size(-1)}) than the input shape_params ({D}). Truncating the MICA output to {D} dimensions.")
+            mica_shape = mica_shape[..., :D]
+            
 
         loss = F.mse_loss(shape_params, mica_shape)
         return loss

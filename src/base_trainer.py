@@ -198,6 +198,11 @@ class BaseTrainer(nn.Module):
             mica_output_shape = self.mica(batch['img_mica'])
             mica_output = copy.deepcopy(base_output) # just to get the keys and structure
             mica_output['shape_params'] = mica_output_shape['shape_params']
+
+            if self.config.arch.num_shape < 300:
+                # WARNING: we are visualizing using only the first num_shape parameters
+                mica_output['shape_params'] = mica_output['shape_params'][:, :self.config.arch.num_shape]
+
             flame_output_mica = self.flame.forward(mica_output, zero_expression=True, zero_pose=True)
             rendered_img_mica_zero = self.renderer.forward(flame_output_mica['vertices'], zero_pose_cam)['rendered_img']
             visualizations['rendered_img_mica_zero'] = rendered_img_mica_zero

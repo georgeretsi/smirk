@@ -46,13 +46,13 @@ class PoseEncoder(nn.Module):
 
 
 class ShapeEncoder(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, n_shape=300) -> None:
         super().__init__()
 
         self.encoder, feature_dim = create_backbone('tf_mobilenetv3_large_minimal_100')
 
         self.shape_layers = nn.Sequential(
-            nn.Linear(feature_dim, 300)
+            nn.Linear(feature_dim, n_shape)
         )
 
         self.init_weights()
@@ -74,15 +74,16 @@ class ShapeEncoder(nn.Module):
 
 
 class ExpressionEncoder(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, n_exp=50) -> None:
         super().__init__()
 
         self.encoder, feature_dim = create_backbone('tf_mobilenetv3_large_minimal_100')
         
         self.expression_layers = nn.Sequential( 
-            nn.Linear(feature_dim, 55) # num expressions + jaw + eyelid
+            nn.Linear(feature_dim, n_exp+2+3) # num expressions + jaw + eyelid
         )
 
+        self.n_exp = n_exp
         self.init_weights()
 
 
@@ -101,23 +102,23 @@ class ExpressionEncoder(nn.Module):
 
         outputs = {}
 
-        outputs['expression_params'] = parameters[...,:50]
-        outputs['eyelid_params'] = torch.clamp(parameters[...,50:52], 0, 1)
-        outputs['jaw_params'] = torch.cat([F.relu(parameters[...,52].unsqueeze(-1)), 
-                                           torch.clamp(parameters[...,53:55], -.2, .2)], dim=-1)
+        outputs['expression_params'] = parameters[...,:self.n_exp]
+        outputs['eyelid_params'] = torch.clamp(parameters[...,self.n_exp:self.n_exp+2], 0, 1)
+        outputs['jaw_params'] = torch.cat([F.relu(parameters[...,self.n_exp+2].unsqueeze(-1)), 
+                                           torch.clamp(parameters[...,self.n_exp+3:self.n_exp+5], -.2, .2)], dim=-1)
 
         return outputs
 
 
 class SmirkEncoder(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, n_exp=50, n_shape=300) -> None:
         super().__init__()
 
         self.pose_encoder = PoseEncoder()
 
-        self.shape_encoder = ShapeEncoder()
+        self.shape_encoder = ShapeEncoder(n_shape=n_shape)
 
-        self.expression_encoder = ExpressionEncoder() 
+        self.expression_encoder = ExpressionEncoder(n_exp=n_exp) 
 
     def forward(self, img):
         pose_outputs = self.pose_encoder(img)
